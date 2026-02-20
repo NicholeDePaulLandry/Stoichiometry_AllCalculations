@@ -2,45 +2,60 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Stoichiometry</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* Force Cambria for everything */
         * {
             font-family: 'Cambria', 'Georgia', serif !important;
+            -webkit-tap-highlight-color: transparent;
         }
         
+        body {
+            touch-action: manipulation;
+        }
+
         .tile {
             cursor: grab;
-            transition: transform 0.2s, background-color 0.2s;
+            transition: transform 0.1s, background-color 0.2s, box-shadow 0.2s;
             user-select: none;
-            touch-action: none;
+            touch-action: none; /* Crucial for custom touch logic */
             z-index: 10;
         }
         .tile:active {
             cursor: grabbing;
+            transform: scale(1.05);
         }
+        
+        .tile.dragging-active {
+            opacity: 0.6;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
         /* Railroad Track Styling */
         .railroad-container {
             display: flex;
             align-items: center;
             overflow-x: auto;
-            padding: 20px 0;
+            padding: 15px 5px;
             border-bottom: 4px solid #334155;
             border-top: 4px solid #334155;
             position: relative;
+            scrollbar-width: thin;
+            justify-content: center; /* Center tracks if few slots */
         }
         .railroad-section {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            min-width: 170px;
+            min-width: 140px;
             border-right: 4px solid #334155;
-            padding: 10px;
-            height: 190px;
+            padding: 8px;
+            height: 180px;
             position: relative;
+            flex-shrink: 0;
         }
         .railroad-section:first-child {
             border-left: 4px solid #334155;
@@ -60,20 +75,23 @@
             transition: all 0.3s;
             border-radius: 12px;
             margin: 4px;
-            border: 2px solid transparent;
+            border: 2px dashed #cbd5e1;
             min-height: 110px;
         }
         .drop-zone.drag-over {
             background-color: #eff6ff;
             border-color: #3b82f6;
+            border-style: solid;
         }
         .drop-zone.correct-tile {
             background-color: #f0fdf4;
             border-color: #22c55e;
+            border-style: solid;
         }
         .drop-zone.incorrect-tile {
             background-color: #fef2f2;
             border-color: #ef4444;
+            border-style: solid;
         }
         .fraction-line-inner {
             height: 2px;
@@ -81,94 +99,106 @@
             margin: 4px 0;
             width: 100%;
         }
+
+        /* Mobile specific adjustments */
+        @media (max-width: 640px) {
+            .railroad-section {
+                min-width: 120px;
+                height: 160px;
+            }
+            .tile {
+                width: 130px !important;
+                padding: 0.5rem !important;
+            }
+        }
     </style>
 </head>
-<body class="bg-slate-100 min-h-screen text-slate-900">
+<body class="bg-slate-100 min-h-screen text-slate-900 pb-10">
 
     <div class="max-w-7xl mx-auto p-4 md:p-8">
         <!-- Header -->
-        <header class="text-center mb-8">
-            <h1 class="text-5xl font-extrabold text-blue-700 mb-2">Stoichiometry</h1>
-            <p class="text-slate-600 font-medium italic">Master the 4 Main Types: Mole-Mole, Mole-Mass, Mass-Mole, Mass-Mass</p>
-            <div class="mt-4 flex justify-center gap-4">
-                <div class="bg-white shadow-md px-6 py-2 rounded-xl border border-slate-200">
-                    <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Score</span>
-                    <div id="score" class="text-2xl text-blue-600">0</div>
+        <header class="text-center mb-6">
+            <h1 class="text-3xl md:text-5xl font-extrabold text-blue-700 mb-2">Stoichiometry</h1>
+            <p class="text-slate-600 font-medium italic text-sm md:text-base px-4">Master the 4 Main Types: Mole-Mole, Mole-Mass, Mass-Mole, Mass-Mass</p>
+            <div class="mt-4 flex justify-center gap-3 md:gap-4">
+                <div class="bg-white shadow-md px-4 py-1 md:px-6 md:py-2 rounded-xl border border-slate-200">
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Score</span>
+                    <div id="score" class="text-xl md:text-2xl text-blue-600">0</div>
                 </div>
-                <div class="bg-white shadow-md px-6 py-2 rounded-xl border border-slate-200">
-                    <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Level</span>
-                    <div id="level" class="text-2xl text-indigo-600">1 / 4</div>
+                <div class="bg-white shadow-md px-4 py-1 md:px-6 md:py-2 rounded-xl border border-slate-200">
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Level</span>
+                    <div id="level" class="text-xl md:text-2xl text-indigo-600">1 / 4</div>
                 </div>
             </div>
         </header>
 
         <!-- Problem Display -->
-        <main class="bg-white rounded-3xl shadow-2xl p-6 mb-6 border border-slate-200 text-center">
+        <main class="bg-white rounded-2xl md:rounded-3xl shadow-2xl p-4 md:p-6 mb-6 border border-slate-200 text-center">
             <div id="problem-area">
                 <!-- Centered Chemical Equation -->
-                <div class="flex justify-center mb-4">
-                    <div id="equation-context" class="bg-slate-900 px-8 py-4 rounded-2xl text-2xl text-emerald-400 shadow-inner inline-block">
+                <div class="flex justify-center mb-3">
+                    <div id="equation-context" class="bg-slate-900 px-4 py-2 md:px-8 md:py-4 rounded-xl md:rounded-2xl text-lg md:text-2xl text-emerald-400 shadow-inner inline-block">
                         Equation Loading...
                     </div>
                 </div>
 
                 <!-- Problem Type Badge -->
-                <div id="problem-type" class="inline-block px-3 py-1 mb-4 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold uppercase tracking-widest">
+                <div id="problem-type" class="inline-block px-3 py-1 mb-3 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold uppercase tracking-widest">
                     Type: Loading...
                 </div>
 
                 <!-- Word Problem -->
-                <h2 id="question-text" class="text-xl font-bold text-slate-700 mb-8 max-w-2xl mx-auto leading-relaxed">
+                <h2 id="question-text" class="text-base md:text-xl font-bold text-slate-700 mb-6 max-w-2xl mx-auto leading-relaxed px-2">
                     Loading...
                 </h2>
 
                 <!-- Railroad Tracks -->
-                <div class="flex items-center justify-center gap-2 mb-10 overflow-x-auto pb-4">
-                    <div class="railroad-container bg-slate-50 rounded-lg">
+                <div class="flex flex-col lg:flex-row items-center justify-center gap-4 mb-8">
+                    <div class="railroad-container bg-slate-50 rounded-lg w-full max-w-full overflow-x-auto">
                         <!-- Given Value (Static first section) -->
                         <div class="railroad-section">
-                            <div class="font-bold text-blue-700 text-lg" id="given-value-display">Given</div>
+                            <div class="font-bold text-purple-700 text-sm md:text-lg" id="given-value-display">Given</div>
                             <div class="railroad-divider"></div>
                             <div class="text-slate-300">1</div>
                         </div>
 
-                        <!-- Dynamic Drop Sections -->
+                        <!-- Dynamic Drop Sections - Only exact amount needed will be added here -->
                         <div id="drop-container" class="flex">
                             <!-- Zones injected here -->
                         </div>
                     </div>
 
-                    <div class="text-4xl font-bold text-slate-400 px-4">=</div>
+                    <div class="text-3xl md:text-4xl font-bold text-slate-400 rotate-90 lg:rotate-0">=</div>
 
                     <!-- Final Answer Unit Target -->
-                    <div id="target-box" class="flex flex-col items-center justify-center p-6 bg-green-50 border-4 border-green-200 rounded-2xl min-w-[180px] transition-all">
-                        <span class="text-xs font-bold text-green-600 uppercase mb-1">Target Unit</span>
-                        <div id="target-unit" class="text-xl font-bold text-green-700">? mol</div>
+                    <div id="target-box" class="flex flex-col items-center justify-center p-4 md:p-6 bg-green-50 border-4 border-green-200 rounded-2xl min-w-[150px] md:min-w-[180px] transition-all">
+                        <span class="text-[10px] font-bold text-green-600 uppercase mb-1">Target Unit</span>
+                        <div id="target-unit" class="text-lg md:text-xl font-bold text-green-700">? mol</div>
                     </div>
                 </div>
             </div>
 
             <!-- Tile Bank -->
-            <div class="bg-slate-50 p-6 rounded-2xl border-2 border-dashed border-slate-200">
-                <h3 class="text-center text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">Available Conversion Tiles</h3>
-                <div id="tile-bank" class="flex flex-wrap justify-center gap-4">
+            <div class="bg-slate-50 p-4 md:p-6 rounded-2xl border-2 border-dashed border-slate-200">
+                <h3 class="text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Available Conversion Tiles</h3>
+                <div id="tile-bank" class="flex flex-wrap justify-center gap-3 md:gap-4">
                     <!-- Tiles injected here -->
                 </div>
             </div>
         </main>
 
         <!-- Controls -->
-        <div class="flex justify-center gap-6">
-            <button id="reset-btn" class="bg-white border-2 border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-3 px-10 rounded-2xl transition-all shadow-sm">
+        <div class="flex flex-col sm:flex-row justify-center gap-4">
+            <button id="reset-btn" class="bg-white border-2 border-slate-200 hover:bg-slate-50 text-slate-600 font-bold py-3 px-8 rounded-xl transition-all shadow-sm order-2 sm:order-1">
                 Restart Game
             </button>
-            <button id="next-btn" class="hidden bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-12 rounded-2xl shadow-lg transition-all active:scale-95 transform hover:-translate-y-1">
+            <button id="next-btn" class="hidden bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-xl shadow-lg transition-all active:scale-95 transform order-1 sm:order-2">
                 CONTINUE TO NEXT LEVEL
             </button>
         </div>
 
         <!-- Feedback Messages -->
-        <div id="toast" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-8 py-3 rounded-full shadow-2xl opacity-0 transition-opacity pointer-events-none z-50">
+        <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-2xl opacity-0 transition-opacity pointer-events-none z-50 text-sm font-bold text-center w-5/6 max-w-md">
             Message
         </div>
     </div>
@@ -255,6 +285,10 @@
         let currentLevelGivenValue = 0;
         let draggedTile = null;
 
+        let activeTouchTile = null;
+        let startX, startY;
+        let initialLeft, initialTop;
+
         const tileBank = document.getElementById('tile-bank');
         const dropContainer = document.getElementById('drop-container');
         const nextBtn = document.getElementById('next-btn');
@@ -281,11 +315,10 @@
         function showToast(msg) {
             toast.innerText = msg;
             toast.style.opacity = "1";
-            setTimeout(() => { toast.style.opacity = "0"; }, 2000);
+            setTimeout(() => { toast.style.opacity = "0"; }, 2500);
         }
 
         function startGame() {
-            // Randomize level order so students see different problem sequences
             randomizedLevels = shuffle([...originalLevels]);
             currentLevel = 0;
             score = 0;
@@ -295,8 +328,6 @@
 
         function initLevel() {
             const data = randomizedLevels[currentLevel];
-            
-            // Randomize the given value for this specific run
             currentLevelGivenValue = parseFloat(getRandomValue(data.minVal, data.maxVal));
             const displayValue = currentLevelGivenValue.toFixed(3);
 
@@ -314,11 +345,10 @@
             dropContainer.innerHTML = '';
             tileBank.innerHTML = '';
 
-            // Generate slots
+            // Inject ONLY the number of slots required for this problem
             for (let i = 0; i < data.slots; i++) {
                 const section = document.createElement('div');
                 section.className = 'railroad-section';
-                
                 const zone = document.createElement('div');
                 zone.className = 'drop-zone';
                 zone.dataset.index = i;
@@ -338,44 +368,123 @@
                 dropContainer.appendChild(section);
             }
 
-            // Shuffle options (ensuring correct tiles + distractors are available)
             const shuffledOptions = shuffle([...data.options]);
             shuffledOptions.forEach((opt) => {
-                const tile = document.createElement('div');
-                tile.className = 'tile bg-white border-2 border-slate-300 rounded-xl shadow-md p-3 w-40 text-center text-sm font-bold hover:border-blue-400';
-                tile.draggable = true;
-                tile.dataset.value = `${opt.top} / ${opt.bottom}`;
-                tile.dataset.topVal = opt.valTop;
-                tile.dataset.bottomVal = opt.valBottom;
-                
-                tile.innerHTML = `
-                    <div class="text-blue-600">${opt.top}</div>
-                    <div class="fraction-line-inner"></div>
-                    <div class="text-slate-600">${opt.bottom}</div>
-                `;
-
-                tile.addEventListener('dragstart', () => { 
-                    draggedTile = tile; 
-                    tile.classList.add('opacity-40');
-                });
-                tile.addEventListener('dragend', () => { 
-                    tile.classList.remove('opacity-40'); 
-                });
-
+                const tile = createTile(opt);
                 tileBank.appendChild(tile);
             });
+        }
+
+        function createTile(opt) {
+            const tile = document.createElement('div');
+            tile.className = 'tile bg-white border-2 border-slate-300 rounded-xl shadow-md p-3 w-36 md:w-40 text-center text-sm font-bold hover:border-slate-400';
+            tile.draggable = true;
+            tile.dataset.value = `${opt.top} / ${opt.bottom}`;
+            tile.dataset.topVal = opt.valTop;
+            tile.dataset.bottomVal = opt.valBottom;
+            
+            tile.innerHTML = `
+                <div class="text-green-600 pointer-events-none">${opt.top}</div>
+                <div class="fraction-line-inner pointer-events-none bg-slate-200"></div>
+                <div class="text-purple-600 pointer-events-none">${opt.bottom}</div>
+            `;
+
+            tile.addEventListener('dragstart', () => { 
+                draggedTile = tile; 
+                tile.classList.add('dragging-active');
+            });
+            tile.addEventListener('dragend', () => { 
+                tile.classList.remove('dragging-active'); 
+            });
+
+            tile.addEventListener('touchstart', handleTouchStart, { passive: false });
+            tile.addEventListener('touchmove', handleTouchMove, { passive: false });
+            tile.addEventListener('touchend', handleTouchEnd, { passive: false });
+
+            return tile;
+        }
+
+        function handleTouchStart(e) {
+            const touch = e.touches[0];
+            activeTouchTile = e.currentTarget;
+            startX = touch.pageX;
+            startY = touch.pageY;
+            const rect = activeTouchTile.getBoundingClientRect();
+            initialLeft = rect.left;
+            initialTop = rect.top;
+
+            activeTouchTile.style.position = 'fixed';
+            activeTouchTile.style.left = initialLeft + 'px';
+            activeTouchTile.style.top = initialTop + 'px';
+            activeTouchTile.style.width = rect.width + 'px';
+            activeTouchTile.style.zIndex = '1000';
+            activeTouchTile.classList.add('dragging-active');
+            e.preventDefault();
+        }
+
+        function handleTouchMove(e) {
+            if (!activeTouchTile) return;
+            const touch = e.touches[0];
+            const deltaX = touch.pageX - startX;
+            const deltaY = touch.pageY - startY;
+            activeTouchTile.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+            
+            const zones = document.querySelectorAll('.drop-zone');
+            zones.forEach(zone => {
+                const rect = zone.getBoundingClientRect();
+                if (touch.pageX > rect.left && touch.pageX < rect.right &&
+                    touch.pageY > rect.top && touch.pageY < rect.bottom) {
+                    zone.classList.add('drag-over');
+                } else {
+                    zone.classList.remove('drag-over');
+                }
+            });
+            e.preventDefault();
+        }
+
+        function handleTouchEnd(e) {
+            if (!activeTouchTile) return;
+            const touch = e.changedTouches[0];
+            const zones = document.querySelectorAll('.drop-zone');
+            let dropped = false;
+
+            zones.forEach(zone => {
+                const rect = zone.getBoundingClientRect();
+                zone.classList.remove('drag-over');
+                if (touch.pageX > rect.left && touch.pageX < rect.right &&
+                    touch.pageY > rect.top && touch.pageY < rect.bottom) {
+                    resetTileStyle(activeTouchTile);
+                    handleDrop(zone, activeTouchTile);
+                    dropped = true;
+                }
+            });
+
+            if (!dropped) {
+                resetTileStyle(activeTouchTile);
+                if (activeTouchTile.parentElement.classList.contains('drop-zone')) {
+                    tileBank.appendChild(activeTouchTile);
+                }
+            }
+            activeTouchTile.classList.remove('dragging-active');
+            activeTouchTile = null;
+        }
+
+        function resetTileStyle(tile) {
+            tile.style.position = '';
+            tile.style.left = '';
+            tile.style.top = '';
+            tile.style.width = '';
+            tile.style.transform = '';
+            tile.style.zIndex = '';
         }
 
         function handleDrop(zone, tile) {
             const index = parseInt(zone.dataset.index);
             const data = randomizedLevels[currentLevel];
-            
             zone.classList.remove('correct-tile', 'incorrect-tile');
-            
             const isCorrect = tile.dataset.value === data.answer[index];
             
             if (isCorrect) {
-                // If there's already a tile there, return it to the bank
                 if (zone.children.length > 0) {
                     const existing = zone.children[0];
                     tileBank.appendChild(existing);
@@ -387,8 +496,9 @@
                 checkLevelComplete();
             } else {
                 zone.classList.add('incorrect-tile');
-                showToast("Unit Mismatch! Try a different conversion factor.");
+                showToast("Unit Mismatch! Try matching the diagonal units.");
                 tileBank.appendChild(tile);
+                setTimeout(() => zone.classList.remove('incorrect-tile'), 1000);
             }
         }
 
@@ -419,14 +529,12 @@
                 });
 
                 const formattedResult = result.toFixed(3);
-                
                 targetUnitDisplay.innerText = `${formattedResult} ${data.target}`;
                 targetBox.classList.remove('bg-green-50', 'border-green-200');
                 targetBox.classList.add('bg-green-100', 'border-green-500', 'scale-105');
                 
                 nextBtn.classList.remove('hidden');
-                showToast(`Level Complete!  ${formattedResult}`);
-                
+                showToast(`Solved! Level complete.`);
                 score += 100;
                 scoreDisplay.innerText = score;
             }
@@ -437,7 +545,7 @@
                 currentLevel++;
                 initLevel();
             } else {
-                showToast("Stoichiometry Master! You've completed all types.");
+                showToast("Course Complete! Well done.");
                 startGame();
             }
         });
